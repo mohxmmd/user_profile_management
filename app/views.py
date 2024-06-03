@@ -10,37 +10,49 @@ from django.views.generic import DetailView, ListView
 
 class UserProfileListView(ListView):
     model = UserProfile
-    template_name = 'profile_list.html'
+    template_name = '1.profile_list.html'
     context_object_name = 'profiles'
 
-class ProfileView(LoginRequiredMixin, TemplateView):
-    template_name = 'profile.html'
+class ProfileView(CreateView):
+    model = UserProfile
+    form_class = UserProfileForm
+    template_name = '2.createprofile.html'
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        try:
-            profile = self.request.user.userprofile
-        except UserProfile.DoesNotExist:
-            profile = UserProfile(user=self.request.user)
-            profile.save()
-        context['form'] = UserProfileForm(instance=profile)
-        return context
+    def form_valid(self, form):
+        form.instance.user = self.request.user
+        # Save the form to get the UserProfile object
+        user_profile = form.save()
+        # Redirect to 'createportfolio' with the userprofile_id parameter
+        return redirect('createportfolio', userprofile_id=user_profile.pk)
 
-    def post(self, request, *args, **kwargs):
-        try:
-            profile = self.request.user.userprofile
-        except UserProfile.DoesNotExist:
-            profile = UserProfile(user=self.request.user)
-            profile.save()
-        form = UserProfileForm(request.POST, instance=profile)
-        if form.is_valid():
-            form.save()
-            return redirect('profile')
-        return render(request, self.template_name, {'form': form})
+class CreatePortfolioView(CreateView):
+    model = Portfolio
+    form_class = PortfolioForm
+    template_name = '4.createportfolio.html'
 
+    def get_success_url(self):
+        return reverse_lazy('createproject', kwargs={'userprofile_id': self.object.user_profile.id})
 
-class EditProfileView(ProfileView):
-    template_name = 'edit_profile.html'
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        user_profile = get_object_or_404(UserProfile, pk=self.kwargs['userprofile_id'])
+        self.object.user_profile = user_profile
+        self.object.save()
+        return super().form_valid(form)
+    
+class CreateProjectView(CreateView):
+    model = Project
+    form_class = ProjectForm
+    template_name = '5.createproject.html'  # Use a separate template for creating projects
+    success_url = reverse_lazy('profile')
+
+    def form_valid(self, form):
+        self.object = form.save(commit=False)
+        portfolio = Portfolio.objects.get(user_profile_id=self.kwargs['userprofile_id'])
+        self.object.portfolio = portfolio  # Assign the portfolio directly to the project
+        self.object.save()
+        return super().form_valid(form)
+
 
 
 class PortfolioDetailView(DetailView):
@@ -48,7 +60,7 @@ class PortfolioDetailView(DetailView):
     template_name = 'portfolio_detail.html'
 
 
-class PortfolioView(LoginRequiredMixin, TemplateView):
+class PortfolioView(TemplateView):
     template_name = 'portfolio.html'
 
     def get_context_data(self, **kwargs):
@@ -56,29 +68,16 @@ class PortfolioView(LoginRequiredMixin, TemplateView):
         try:
             portfolio = self.request.user.portfolio
         except Portfolio.DoesNotExist:
+            # If the user doesn't have a portfolio, create one
             portfolio = Portfolio(user=self.request.user)
             portfolio.save()
         context['form'] = PortfolioForm(instance=portfolio)
         return context
 
-    def post(self, request, *args, **kwargs):
-        try:
-            portfolio = self.request.user.portfolio
-        except Portfolio.DoesNotExist:
-            portfolio = Portfolio(user=self.request.user)
-            portfolio.save()
-        form = PortfolioForm(request.POST, instance=portfolio)
-        if form.is_valid():
-            form.save()
-            return redirect('portfolio')
-        return render(request, self.template_name, {'form': form})
 
 
-class EditPortfolioView(PortfolioView):
-    template_name = 'edit_portfolio.html'
 
-
-class AddProjectView(LoginRequiredMixin, CreateView):
+class AddProjectView(CreateView):
     model = Project
     form_class = ProjectForm
     template_name = 'project.html'
@@ -96,28 +95,20 @@ class ProjectDetailView(DetailView):
     template_name = 'project_detail.html'
 
 
-class EditProjectView(LoginRequiredMixin, UpdateView):
-    model = Project
-    form_class = ProjectForm
-    template_name = 'edit_project.html'
-
-    def get_success_url(self):
-        return reverse_lazy('portfolio')
 
 
-class DeleteProjectView(LoginRequiredMixin, DeleteView):
-    model = Project
-    success_url = reverse_lazy('portfolio')
 
-    def get_success_url(self):
-        return reverse_lazy('portfolio')
-
-    def post(self, request, *args, **kwargs):
-        return self.delete(request, *args, **kwargs)
+class DeleteProfileView(DeleteView):
+    model = UserProfile
+    success_url = reverse_lazy('profile')  # Redirect to the profile page after deletion
 
     def delete(self, request, *args, **kwargs):
         self.object = self.get_object()
         self.object.delete()
         return redirect(self.get_success_url())
 
-
+class EditProfileView(UpdateView):
+    model = UserProfile
+    form_class = UserProfileForm  # Assuming you have a form for editing the profile
+    template_name = 'edit_profile.html'  # Your edit profile template
+    success_url = reverse_lazy('profile')  # Redirect to the profile page after editing
